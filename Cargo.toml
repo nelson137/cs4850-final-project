@@ -1,0 +1,19 @@
+[package]
+name = "cs4850-final-project"
+version = "0.1.0"
+authors = ["Nelson Earle <nelson.earle137@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2"
+
+[lib]
+name = "libchat"
+
+[[bin]]
+name = "chat-client"
+path = "src/chat-client/main.rs"
+
+[[bin]]
+name = "chat-server"
+path = "src/chat-server/main.rs"
