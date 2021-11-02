@@ -289,7 +289,12 @@ impl Repl {
     ///
     /// syntax: send MSG...
     fn cmd_send(&self, args: &str) -> MyResult<()> {
-        trace!("command SEND");
+        if Regex::new(r"^\s*$")?.is_match(args) {
+            self.print_err("syntax: send MSG...")?;
+            return Ok(());
+        }
+        trace!(args = ?args, "command SEND");
+
         self.client.send_cmd(&["send", args])?;
         self.server_reply()?;
 
