@@ -57,11 +57,13 @@ macro_rules! _print_banner_array {
     };
 }
 
+/// Print the graphic and welcome message banner for the client app.
 pub fn print_client_banner() {
     _print_banner_array!(_BANNER_GRAPHIC_ARRAY);
     print!(_BANNER_WELCOME_MESSAGE_CLIENT!());
 }
 
+/// Print the graphic and welcome message banner for the server app.
 pub fn print_server_banner() {
     _print_banner_array!(_BANNER_GRAPHIC_ARRAY);
     _print_banner_array!(_BANNER_GRAPHIC_SERVER_ARRAY);

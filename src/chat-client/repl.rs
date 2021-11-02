@@ -33,21 +33,28 @@ Commands only available when logged in:
     };
 }
 
+/// Return the commands help message with styalized text.
 fn build_help() -> String {
     format!(_HELP_FORMAT!(), "not".italic())
 }
 
+/// The Client REPL.
+///
+/// This type manages reading commands in from the user, verifying their syntax,
+/// and sending them to the server via a `TcpClient`.
+///
+/// The only exposed method is `main_loop()` which runs the REPL.
 pub struct Repl {
     client: TcpClient,
     logged_in: bool,
     stdin: Stdin,
     stdout: RefCell<Stdout>,
     help_msg: String,
-    prompt_out_err: ColoredString,
-    prompt_out_err_server: ColoredString,
-    prompt_out_msg: ColoredString,
     prompt_in_notlogged: ColoredString,
     prompt_in_logged: ColoredString,
+    prompt_out_err: ColoredString,
+    prompt_out_err_server: ColoredString,
+    prompt_out_info_server: ColoredString,
 }
 
 impl Repl {
@@ -58,11 +65,11 @@ impl Repl {
             stdin: io::stdin(),
             stdout: RefCell::new(io::stdout()),
             help_msg: build_help(),
-            prompt_out_err: "error: ".red().bold(),
-            prompt_out_err_server: "> error: ".red().bold(),
-            prompt_out_msg: "> ".bright_black(),
             prompt_in_notlogged: "< ".bold(),
             prompt_in_logged: "< ".green().bold(),
+            prompt_out_err: "error: ".red().bold(),
+            prompt_out_err_server: "> error: ".red().bold(),
+            prompt_out_info_server: "> ".bright_black(),
         }
     }
 
@@ -70,11 +77,13 @@ impl Repl {
     // Utilities
     //==================================================
 
+    /// Print the server reply with the correct prompt and return whether the
+    /// reply indicates a success or failure of the previous sent command.
     #[inline]
     fn server_reply(&self) -> MyResult<bool> {
         let reply = self.client.recv_reply()?;
         match &reply {
-            Ok(msg) => self.print_info(msg)?,
+            Ok(msg) => self.print_info_server(msg)?,
             Err(msg) => self.print_err_server(msg)?,
         }
         Ok(reply.is_ok())
@@ -84,8 +93,9 @@ impl Repl {
     // Utilities - IO
     //==================================================
 
+    /// Return the styalized string of the prompt according to the login state.
     #[inline]
-    fn get_prompt_user(&self) -> &ColoredString {
+    fn get_user_prompt(&self) -> &ColoredString {
         if self.logged_in {
             &self.prompt_in_logged
         } else {
@@ -93,6 +103,8 @@ impl Repl {
         }
     }
 
+    /// Print `msg`, ensuring that it appears on the screen even if it contains
+    /// no newline by calling `flush()`.
     #[inline]
     fn print(&self, msg: impl AsRef<[u8]>) -> MyResult<()> {
         let mut stdout = self.stdout.borrow_mut();
@@ -101,6 +113,7 @@ impl Repl {
         Ok(())
     }
 
+    /// Print `msg` with a newline.
     #[inline]
     fn println(&self, msg: impl AsRef<[u8]>) -> MyResult<()> {
         let mut stdout = self.stdout.borrow_mut();
@@ -110,6 +123,7 @@ impl Repl {
         Ok(())
     }
 
+    /// Print `msg` with the error prompt.
     #[inline]
     fn print_err(&self, msg: impl AsRef<str>) -> MyResult<()> {
         self.print(self.prompt_out_err.to_string())?;
@@ -117,6 +131,9 @@ impl Repl {
         Ok(())
     }
 
+    /// Print `msg` with the server error prompt.
+    ///
+    /// This is for command responses from the server that indicate failure.
     #[inline]
     fn print_err_server(&self, msg: impl AsRef<str>) -> MyResult<()> {
         self.print(self.prompt_out_err_server.to_string())?;
@@ -124,9 +141,12 @@ impl Repl {
         Ok(())
     }
 
+    /// Print `msg` with the server info prompt.
+    ///
+    /// This is for command responses from the server that indicate success.
     #[inline]
-    fn print_info(&self, msg: impl AsRef<str>) -> MyResult<()> {
-        self.print(self.prompt_out_msg.to_string())?;
+    fn print_info_server(&self, msg: impl AsRef<str>) -> MyResult<()> {
+        self.print(self.prompt_out_info_server.to_string())?;
         self.println(msg.as_ref())?;
         Ok(())
     }
@@ -135,13 +155,14 @@ impl Repl {
     // Main Loop
     //==================================================
 
+    /// Run the REPL.
     pub fn main_loop(&mut self) -> MyResult<()> {
         let mut raw_line = String::new();
         let re_cmd = Regex::new(r"^\s*(\S+) ?(.*)$")?;
 
         loop {
             raw_line.clear();
-            self.print(self.get_prompt_user().to_string())?;
+            self.print(self.get_user_prompt().to_string())?;
             self.stdin.read_line(&mut raw_line)?;
             let line = raw_line.trim_end_matches('\n');
             trace!(line, "input");
@@ -158,7 +179,10 @@ impl Repl {
 
             match cmd {
                 "help" => self.print(self.help_msg.clone())?,
-                "quit" => break,
+                "quit" => {
+                    self.cmd_quit()?;
+                    break;
+                }
                 "newuser" => self.cmd_newuser(args)?,
                 "login" => self.cmd_login(args)?,
                 "logout" => self.cmd_logout(args)?,
@@ -176,6 +200,26 @@ impl Repl {
     // Commands
     //==================================================
 
+    /// Send a quit command to the server.
+    ///
+    /// syntax: quit
+    ///
+    /// Note: this command has less strict syntax; it allows arguments that are
+    /// ignored.
+    fn cmd_quit(&mut self) -> MyResult<()> {
+        trace!("command QUIT");
+        if self.logged_in {
+            self.cmd_logout("")?;
+        }
+        self.client.send_cmd(&["quit"])?;
+        self.println("goodbye.")?;
+
+        Ok(())
+    }
+
+    /// Parse `args` for the newuser command and send them to the server.
+    ///
+    /// syntax: newuser USER PASS
     fn cmd_newuser(&self, args: &str) -> MyResult<()> {
         let re_newuser_args = Regex::new(r"^\s*(\S+)\s+(\S+)\s*$")?;
         let newuser_args = match re_newuser_args.captures(args) {
@@ -185,7 +229,7 @@ impl Repl {
                 _ => None,
             },
         };
-        trace!(args = ?newuser_args, "parsed command newuser");
+        trace!(args = ?newuser_args, "command NEWUSER");
 
         if let Some((user, pass)) = newuser_args {
             self.client.send_cmd(&["newuser", user, pass])?;
@@ -197,6 +241,9 @@ impl Repl {
         Ok(())
     }
 
+    /// Parse `args` for the login command and send them to the server.
+    ///
+    /// syntax: login USER PASS
     fn cmd_login(&mut self, args: &str) -> MyResult<()> {
         let re_login_args = Regex::new(r"^\s*(\S+)\s+(\S+)\s*$")?;
         let login_args = match re_login_args.captures(args) {
@@ -206,6 +253,7 @@ impl Repl {
                 _ => None,
             },
         };
+        trace!(args = ?login_args, "command LOGIN");
 
         if let Some((user, pass)) = login_args {
             self.client.send_cmd(&["login", user, pass])?;
@@ -219,11 +267,15 @@ impl Repl {
         Ok(())
     }
 
+    /// Parse `args` for the logout command and send them to the server.
+    ///
+    /// syntax: logout
     fn cmd_logout(&mut self, args: &str) -> MyResult<()> {
         if !Regex::new(r"^\s*$")?.is_match(args) {
             self.print_err("syntax: logout")?;
             return Ok(());
         }
+        trace!("command LOGOUT");
 
         self.client.send_cmd(&["logout"])?;
         if self.server_reply()? {
@@ -233,7 +285,11 @@ impl Repl {
         Ok(())
     }
 
+    /// Parse `args` for the send command and send them to the server.
+    ///
+    /// syntax: send MSG...
     fn cmd_send(&self, args: &str) -> MyResult<()> {
+        trace!("command SEND");
         self.client.send_cmd(&["send", args])?;
         self.server_reply()?;
 

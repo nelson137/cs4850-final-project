@@ -5,15 +5,15 @@ use std::{
 };
 
 use libc::{
-    __errno_location, accept, bind, c_int, c_short, c_void, close, connect,
-    in_addr, listen, poll, pollfd, read, sockaddr, sockaddr_in, socket,
-    strerror_r, write, AF_INET, INADDR_ANY, SOCK_STREAM,
+    accept, bind, c_int, c_short, c_void, close, connect, in_addr, listen,
+    poll, pollfd, read, sockaddr, sockaddr_in, socket, write, AF_INET,
+    INADDR_LOOPBACK, SOCK_STREAM,
 };
-use tracing::info;
+use tracing::debug;
 
-use super::hton;
+use super::{errno_wrapper, hton};
 
-use crate::{err::MyResult, MSG_MAX};
+use crate::{err::MyResult, LISTEN_BACKLOG, MSG_MAX};
 
 macro_rules! SIZEOF {
     ($ty:ty) => {
@@ -25,29 +25,32 @@ macro_rules! SIZEOF {
 // Common
 //==============================================================================
 
-/// Represent a socket address suitable for use with `Socket`.
+/// Represent a socket address.
+///
+/// Utility methods are provided for easily passing this struct into socket API
+/// function calls.
 pub struct SockAddr {
     // Array has a method for casting to a mutable pointer, so use
-    // single-element array to make ref->ptr cast easy
+    // single-element array so it's easy to get a pointer to the data.
     addr: [sockaddr_in; 1],
 }
 
 impl SockAddr {
-    /// Create a new SockAddr describing any address and the given port.
+    /// Create a new `SockAddr` describing any address and the given port.
     pub fn new(port: u16) -> Self {
         Self {
             addr: [sockaddr_in {
                 sin_family: AF_INET as u16,
                 sin_port: hton(port),
                 sin_addr: in_addr {
-                    s_addr: hton(INADDR_ANY),
+                    s_addr: hton(INADDR_LOOPBACK),
                 },
                 sin_zero: [0; 8],
             }],
         }
     }
 
-    /// Create a new empty SockAddr.
+    /// Create a new empty `SockAddr`.
     ///
     /// Use this when a buffer is needed.
     pub fn zero() -> Self {
@@ -60,66 +63,51 @@ impl SockAddr {
     }
 }
 
-/// An interface for performing socket operations.
+/// An interface for performing common socket operations.
 ///
 /// Implement syscall wrappers for socket operations that can be used on both
 /// the client-side and server-side are provided, including:
-/// - close
-/// - poll
-/// - send
-/// - recv
+/// - `close()`
+/// - `poll()`
+/// - `send()`
+/// - `recv()`
 pub trait SocketCommon: From<c_int> {
+    /// Create a socket and return its file descriptor.
+    ///
+    /// **For internal use only.**
     fn _create_raw() -> MyResult<c_int> {
-        unsafe {
-            let sock = socket(AF_INET, SOCK_STREAM, 0);
-            if sock < 0 {
-                Err("failed to create socket".to_string().into())
-            } else {
-                Ok(sock)
-            }
-        }
+        errno_wrapper(|| unsafe { socket(AF_INET, SOCK_STREAM, 0) })
+            .map_err(|err| format!("failed to create socket: {}", err).into())
     }
 
+    /// Return the file descriptor of this socket.
     fn fd(&self) -> c_int;
 
+    /// Return an object that implements `Display` (i.e. can be printed).
     fn display(&self) -> SocketDisplay;
 
+    /// Close this socket.
+    ///
+    /// Note: all types that implement the `SocketCommon` trait also implement
+    /// `Drop` (i.e. the socket will be closed when the object goes out of
+    /// scope).
     fn close(&self) {
-        info!(sock=%self.display(), "closing socket");
+        debug!(sock=%self.display(), "closing socket");
         unsafe {
             close(self.fd());
         }
     }
 
+    /// Wrapper method that calls `poll()` on this socket.
     fn poll(&self, events: c_short) -> MyResult<bool> {
-        unsafe {
-            let fd = self.fd();
+        let mut poll_fds = [pollfd {
+            fd: self.fd(),
+            events,
+            revents: 0,
+        }];
 
-            let mut poll_fds = [pollfd {
-                fd,
-                events,
-                revents: 0,
-            }];
-
-            let errno_loc = __errno_location();
-            *errno_loc = 0;
-
-            match poll(poll_fds.as_mut_ptr(), 1, 0) {
-                1.. => Ok(true),
-                0 => Ok(false),
-                _ => {
-                    let mut err_str_buf = [0_i8; 256];
-                    strerror_r(
-                        *errno_loc,
-                        err_str_buf.as_mut_ptr(),
-                        err_str_buf.len(),
-                    );
-                    let err_str =
-                        CStr::from_ptr(err_str_buf.as_ptr()).to_string_lossy();
-                    Err(format!("failed to poll fd {}: {}", fd, err_str).into())
-                }
-            }
-        }
+        errno_wrapper(|| unsafe { poll(poll_fds.as_mut_ptr(), 1, 0) } > 0)
+            .map_err(|err| format!("failed to poll: {}", err).into())
     }
 
     /// Wrapper for socket API `send()`.
@@ -135,13 +123,10 @@ pub trait SocketCommon: From<c_int> {
             );
         }
 
-        unsafe {
-            if write(self.fd(), buf, size) as usize == size {
-                Ok(())
-            } else {
-                Err("failed to send message".to_string().into())
-            }
-        }
+        errno_wrapper(|| unsafe {
+            write(self.fd(), buf, size);
+        })
+        .map_err(|err| format!("failed to send(): {}", err).into())
     }
 
     /// Wrapper for socket API `recv()`.
@@ -149,14 +134,12 @@ pub trait SocketCommon: From<c_int> {
         // Create a buffer with `size` bytes initialized to 0
         let mut buf = vec![0_u8; size];
         let buf_ptr = buf.as_mut_ptr() as *mut c_void;
-        // Call recv()
-        unsafe {
-            if read(self.fd(), buf_ptr, size - 1) < 0 {
-                return Err("failed to receive message from client"
-                    .to_string()
-                    .into());
-            }
-        }
+
+        errno_wrapper(|| unsafe {
+            read(self.fd(), buf_ptr, size - 1);
+        })
+        .map_err(|err| format!("failed to recv(): {}", err))?;
+
         // Make sure buffer is null-terminated just in case it gets completely
         // filled. This should never happen because the buffer is
         // zero-initialized and the length given to recv() was size-1 so the
@@ -179,6 +162,8 @@ pub trait SocketCommon: From<c_int> {
     }
 }
 
+/// Store the necesssary data and implement `Display` such that this socket can
+/// be formatted nicely and printed.
 pub struct SocketDisplay<'a> {
     name: &'a str,
     fd: c_int,
@@ -205,9 +190,9 @@ impl Display for SocketDisplay<'_> {
 /// Calls `close()` when dropped.
 ///
 /// Implement syscall wrappers for server-side socket operations, including:
-/// - bind
-/// - listen
-/// - accept
+/// - `bind()`
+/// - `listen()`
+/// - `accept()`
 pub struct ServerSocket {
     sock: c_int,
 }
@@ -244,36 +229,30 @@ impl ServerSocket {
 
     /// Wrapper for socket API `bind()`.
     pub fn bind(&self, addr: &mut SockAddr) -> MyResult<()> {
-        unsafe {
-            match bind(self.sock, addr.as_mut_ptr(), SIZEOF!(sockaddr_in)) {
-                0 => Ok(()),
-                _ => Err("failed to bind socket".to_string().into()),
-            }
-        }
+        errno_wrapper(|| unsafe {
+            bind(self.sock, addr.as_mut_ptr(), SIZEOF!(sockaddr_in));
+        })
+        .map_err(|err| format!("failed to bind(): {}", err).into())
     }
 
     /// Wrapper for socket API `listen()`.
     pub fn listen(&self) -> MyResult<()> {
-        unsafe {
-            match listen(self.sock, 64) {
-                0 => Ok(()),
-                _ => Err("failed to listen to socket".to_string().into()),
-            }
-        }
+        errno_wrapper(|| unsafe {
+            listen(self.sock, LISTEN_BACKLOG);
+        })
+        .map_err(|err| format!("failed to listen(): {}", err).into())
     }
 
     /// Wrapper for socket API `accept()`.
     pub fn accept(&self) -> MyResult<Self> {
-        unsafe {
-            let mut addr = SockAddr::zero();
-            // Use single-element array because it provides a method for
-            // converting to a mutable pointer.
-            let mut size = [SIZEOF!(sockaddr_in)];
-            match accept(self.sock, addr.as_mut_ptr(), size.as_mut_ptr()) {
-                -1 => Err("failed to accept connection".to_string().into()),
-                s => Ok(s.into()),
-            }
-        }
+        let mut addr = SockAddr::zero();
+        // Use single-element array because it provides a method for
+        // converting to a mutable pointer.
+        let mut size = [SIZEOF!(sockaddr_in)];
+        errno_wrapper(|| unsafe {
+            accept(self.sock, addr.as_mut_ptr(), size.as_mut_ptr()).into()
+        })
+        .map_err(|err| format!("failed to accept(): {}", err).into())
     }
 }
 
@@ -286,7 +265,7 @@ impl ServerSocket {
 /// Calls `close()` when dropped.
 ///
 /// Implement syscall wrappers for client-side socket operations, including:
-/// - connect
+/// - `connect()`
 pub struct ClientSocket {
     sock: c_int,
 }

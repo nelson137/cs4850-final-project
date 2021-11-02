@@ -8,11 +8,21 @@ use libchat::{
     CmdResult, COMMAND_SEP, MSG_MAX, RESPONSE_FLAG_ERR, RESPONSE_FLAG_OK,
 };
 
+/// Wrapper type that manages client-side networking.
+///
+/// Methods are provided for sending a command to the server (`send_cmd`) and
+/// receiving the reply (`recv_reply`).
+///
+/// A command invocation must be implemented as one call to `send_cmd()`
+/// followed by one call to `recv_reply()`. Special control bytes are used as
+/// delimiters for command arguments and reply status and information.
 pub struct TcpClient {
     pub sock: ClientSocket,
 }
 
 impl TcpClient {
+    /// Create a new TCP client which immediately attempts to connect to the
+    /// server.
     pub fn new(port: u16) -> MyResult<Self> {
         let sock = ClientSocket::new()?;
         let mut addr = SockAddr::new(port);
@@ -20,6 +30,13 @@ impl TcpClient {
         Ok(Self { sock })
     }
 
+    /// Send the given command `parts` to the server. `parts` must contain at
+    /// least 1 argument, the command name, and any number of arguments.
+    ///
+    /// The command name and arguments are separated by a special byte that is
+    /// expected by the server.
+    ///
+    /// Note: calling this method with an empty array will cause a panic.
     pub fn send_cmd<'a>(&self, parts: impl AsRef<[&'a str]>) -> MyResult<()> {
         let parts = parts.as_ref();
         let mut server_cmd = parts[0].to_string();
@@ -31,23 +48,29 @@ impl TcpClient {
         Ok(())
     }
 
+    /// Return the reply from the server indicating whether the previous command
+    /// succeeded or failed.
     pub fn recv_reply(&self) -> CmdResult {
         let reply = self.sock.recv(MSG_MAX)?;
         trace!(msg = ?reply, "server response");
         match reply.as_bytes() {
+            // Received string with Ok flag for first byte
             [RESPONSE_FLAG_OK, rest @ ..] => {
                 Ok(Ok(String::from_utf8_lossy(rest).to_string()))
             }
+            // Received string with Error flag for first byte
             [RESPONSE_FLAG_ERR, rest @ ..] => {
                 Ok(Err(String::from_utf8_lossy(rest).to_string()))
             }
+            // Received string with first byte being neither Ok nor Error flag
             // This should never happen
             [f, ..] => {
                 Err(format!("server reply starts with invalid byte: {:?}", f)
                     .into())
             }
+            // Received empty string
             // This should never happen
-            [] => Err("server reply is empty string".to_string().into()),
+            [] => Err("no reply".to_string().into()),
         }
     }
 }

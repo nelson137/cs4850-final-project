@@ -1,13 +1,15 @@
 use std::{ffi, io, str};
 
-// error::Error,
-
 use dotenv;
 use regex;
 use thiserror::Error;
 
 pub type MyResult<T> = Result<T, MyError>;
 
+/// My error type.
+///
+/// Conversion implementations are provided for all error types encountered by
+/// this project.
 #[derive(Debug, Error)]
 pub enum MyError {
     #[error("{0}")]

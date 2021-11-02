@@ -37,6 +37,13 @@ impl Drop for UsersDao {
     }
 }
 
+/// Users (D)atabase (A)ccess (O)bject
+///
+/// This type provides all methods necessary to interact with the users
+/// database.
+///
+/// If users are added to the database, then it will update the persistent (on
+/// -disk) storage when the object goes out of scope and is dropped.
 impl UsersDao {
     pub fn from(path_ref: impl AsRef<Path>) -> MyResult<Self> {
         let path = path_ref.as_ref().to_path_buf();
@@ -86,10 +93,14 @@ impl UsersDao {
         })
     }
 
+    /// Get an Entry for `user`.
     pub fn entry(&mut self, user: impl AsRef<str>) -> Entry<String, String> {
         self.users.entry(user.as_ref().to_string())
     }
 
+    /// Insert `user` with `pass` into the database and return whether the
+    /// operation was a success, i.e. whether was not already an existing user
+    /// with the same `name`.
     pub fn insert<S: AsRef<str>>(&mut self, user: S, pass: S) -> bool {
         self.dirty = true;
         match self.users.entry(user.as_ref().to_string()) {

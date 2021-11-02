@@ -1,3 +1,5 @@
+use std::os::raw::c_int;
+
 use libc::size_t;
 
 mod banner;
@@ -16,6 +18,9 @@ pub use users_dao::UsersDao;
 
 /// Port used by servers and clients
 pub const CHAT_PORT: u16 = 10087;
+
+// Maximum number of pending connections that can be in the queue.
+pub const LISTEN_BACKLOG: c_int = 64;
 
 /// Maximum number of bytes (including null) that can be sent in a message.
 ///
@@ -36,6 +41,12 @@ pub const COMMAND_SEP: &str = "\x02";
 /// with either `RESPONSE_FLAG_OK` or `RESPONSE_FLAG_ERR` as a prefix.
 pub type CmdResult = MyResult<Result<String, String>>;
 
+/// Magic number byte for server command replies indicating a success.
+///
+/// This must be the first byte of the reply string.
 pub const RESPONSE_FLAG_OK: u8 = 0x06;
 
+/// Magic number byte for server command replies indicating a failure.
+///
+/// This must be the first byte of the reply string.
 pub const RESPONSE_FLAG_ERR: u8 = 0x15;
