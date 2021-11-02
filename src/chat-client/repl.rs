@@ -232,8 +232,18 @@ impl Repl {
         trace!(args = ?newuser_args, "command NEWUSER");
 
         if let Some((user, pass)) = newuser_args {
-            self.client.send_cmd(&["newuser", user, pass])?;
-            self.server_reply()?;
+            if user.len() < 3 || user.len() > 32 {
+                self.print_err(
+                    "newuser: USER must be 3 to 32 characters long, inclusive",
+                )?;
+            } else if pass.len() < 4 || pass.len() > 8 {
+                self.print_err(
+                    "newuser: PASS must be 4 to 8 characters long, inclusive",
+                )?;
+            } else {
+                self.client.send_cmd(&["newuser", user, pass])?;
+                self.server_reply()?;
+            }
         } else {
             self.print_err("syntax: newuser USER PASS")?;
         }
