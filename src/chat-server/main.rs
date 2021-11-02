@@ -1,9 +1,13 @@
-use std::process::exit;
+use std::{path::PathBuf, process::exit};
 
-use libchat::{err::MyResult, CHAT_PORT};
+use dotenv;
+use tracing::level_filters::STATIC_MAX_LEVEL;
+use tracing_subscriber;
+
+use libchat::{err::MyResult, print_server_banner, UsersDao, CHAT_PORT};
 
 mod server;
-use server::SocketServer;
+use server::TcpServer;
 
 fn main() {
     if let Err(err) = run() {
@@ -14,5 +18,14 @@ fn main() {
 }
 
 fn run() -> MyResult<()> {
-    SocketServer::new(CHAT_PORT)?.run()
+    tracing_subscriber::fmt()
+        .with_max_level(STATIC_MAX_LEVEL)
+        .init();
+
+    print_server_banner();
+
+    let users_db = UsersDao::from(PathBuf::from(dotenv::var("USERS_DB")?))?;
+    TcpServer::new(CHAT_PORT, users_db)?.main_loop()?;
+
+    Ok(())
 }

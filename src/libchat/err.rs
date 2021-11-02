@@ -1,56 +1,39 @@
-use std::{
-    error::Error,
-    ffi::{FromBytesWithNulError, NulError},
-    fmt,
-    str::Utf8Error,
-};
+use std::{ffi, io, str};
+
+// error::Error,
+
+use dotenv;
+use regex;
+use thiserror::Error;
 
 pub type MyResult<T> = Result<T, MyError>;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum MyError {
-    Simple(String),
+    #[error("{0}")]
+    Message(String),
+
+    #[error("{0}")]
+    Utf8Error(#[from] str::Utf8Error),
+
+    #[error("{0}")]
+    Io(#[from] io::Error),
+
+    #[error("{0}")]
+    FromBytesWithNulError(#[from] ffi::FromBytesWithNulError),
+
+    #[error("{0}")]
+    NulError(#[from] ffi::NulError),
+
+    #[error("{0}")]
+    Regex(#[from] regex::Error),
+
+    #[error("dotenv: {0}")]
+    Dotenv(#[from] dotenv::Error),
 }
 
-impl Error for MyError {}
-
-/**
- * Implementations for conversion from another type/error
- */
-
-impl From<&'static str> for MyError {
-    fn from(err: &'static str) -> Self {
-        Self::Simple(err.to_string())
-    }
-}
-
-impl From<FromBytesWithNulError> for MyError {
-    fn from(err: FromBytesWithNulError) -> Self {
-        Self::Simple(err.to_string())
-    }
-}
-
-impl From<NulError> for MyError {
-    fn from(err: NulError) -> Self {
-        Self::Simple(err.to_string())
-    }
-}
-
-impl From<Utf8Error> for MyError {
-    fn from(err: Utf8Error) -> Self {
-        Self::Simple(err.to_string())
-    }
-}
-
-/**
- * Display
- */
-
-impl fmt::Display for MyError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        use MyError::*;
-        match self {
-            Simple(msg) => write!(fmt, "{}", msg),
-        }
+impl From<String> for MyError {
+    fn from(msg: String) -> Self {
+        Self::Message(msg)
     }
 }

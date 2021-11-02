@@ -5,8 +5,18 @@ authors = ["Nelson Earle <nelson.earle137@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+colored = "2.0"
+dotenv = "0.15"
 libc = "0.2"
 num-traits = "0.2"
+regex = "1.5"
+signal-hook = { version = "0.3", default-features = false }
+thiserror = "1.0"
+tracing = { version = "0.1", features = ["max_level_trace", "release_max_level_off"] }
+tracing-subscriber = "0.2"
+
+[features]
+quiet = ["tracing/max_level_debug"]
 
 [lib]
 name = "libchat"

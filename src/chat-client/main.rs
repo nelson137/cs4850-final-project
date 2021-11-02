@@ -1,9 +1,15 @@
 use std::process::exit;
 
-use libchat::{err::MyResult, CHAT_PORT};
+use client::TcpClient;
+use tracing::level_filters::STATIC_MAX_LEVEL;
+use tracing_subscriber;
 
-mod client;
-use client::SocketClient;
+use libchat::{err::MyResult, print_client_banner, CHAT_PORT};
+
+pub mod client;
+
+pub mod repl;
+use repl::Repl;
 
 fn main() {
     if let Err(err) = run() {
@@ -14,5 +20,14 @@ fn main() {
 }
 
 fn run() -> MyResult<()> {
-    SocketClient::new(CHAT_PORT)?.run()
+    tracing_subscriber::fmt()
+        .with_max_level(STATIC_MAX_LEVEL)
+        .init();
+
+    print_client_banner();
+
+    let client = TcpClient::new(CHAT_PORT)?;
+    Repl::new(client).main_loop()?;
+
+    Ok(())
 }
