@@ -6,8 +6,8 @@ use std::{
 
 use libc::{
     accept, bind, c_int, c_short, c_void, close, connect, in_addr, listen,
-    poll, pollfd, read, sockaddr, sockaddr_in, socket, write, AF_INET,
-    INADDR_LOOPBACK, SOCK_STREAM,
+    poll, pollfd, read, setsockopt, sockaddr, sockaddr_in, socket, write,
+    AF_INET, INADDR_LOOPBACK, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR,
 };
 use tracing::debug;
 
@@ -223,7 +223,20 @@ impl SocketCommon for ServerSocket {
 
 impl ServerSocket {
     pub fn new() -> MyResult<Self> {
-        Ok(Self::_create_raw()?.into())
+        let fd = Self::_create_raw()?;
+
+        // Set SO_REUSEADDR so a bind() doesn't fail on a socket that is in
+        // the CLOSE_WAIT state.
+        let value = [1 as c_int];
+        let value_ptr = value.as_ptr() as *const c_void;
+        errno_wrapper(|| unsafe {
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, value_ptr, SIZEOF!(c_int))
+        })
+        .map_err(|err| {
+            format!("failed to set socket option SO_REUSEADDR: {}", err)
+        })?;
+
+        Ok(fd.into())
     }
 
     /// Wrapper for socket API `bind()`.
