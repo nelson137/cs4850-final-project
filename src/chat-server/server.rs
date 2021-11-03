@@ -13,7 +13,7 @@ use libc::POLLIN;
 use libchat::{
     err::MyResult,
     setup_int_handler,
-    sys::{ServerSocket, SockAddr, SocketCommon},
+    sys::{errno_was_intr, ServerSocket, SockAddr, SocketCommon},
     CmdResult, UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
     REPLY_FLAG_OK,
 };
@@ -50,7 +50,7 @@ impl TcpServer {
         // Sleep after each loop iter to prevent CPU overload
         let delay = Duration::from_millis(25);
 
-        let mut client = None;
+        let mut maybe_client = None;
         let mut client_quit = false;
 
         loop {
@@ -58,35 +58,43 @@ impl TcpServer {
                 break;
             }
 
-            let c = match &mut client {
-                Some(c) => c,
-                None => {
-                    if !self.sock.poll(POLLIN)? {
-                        thread::sleep(delay);
-                        continue;
-                    }
-                    let c = self.sock.accept()?;
-                    debug!(sock = %c.display(), "client connected");
-                    client.insert(Client::new(c))
+            match self.sock.poll(POLLIN) {
+                Ok(has_incoming) if has_incoming => {
+                    maybe_client
+                        .get_or_insert(Client::new(self.sock.accept()?));
                 }
-            };
-
-            if !c.sock.poll(POLLIN)? {
-                thread::sleep(delay);
-                continue;
+                err @ Err(_) => {
+                    if errno_was_intr() {
+                        break;
+                    } else {
+                        // `Result::and()` must be used to convert
+                        // `Result<bool, _>` to a `Result<(), _>`, the return
+                        // type, even though we know the value is an `Err`.
+                        return err.and(Ok(()));
+                    }
+                }
+                _ => (),
             }
 
-            let reply = match self.handle_connection(c, &mut client_quit)? {
-                _ if client_quit => {
-                    // Drop and close client socket
-                    client.take();
-                    continue;
-                }
-                Ok(msg) => format!("{}{}", REPLY_FLAG_OK as char, msg),
-                Err(msg) => format!("{}{}", REPLY_FLAG_ERR as char, msg),
+            let client = if let Some(c) = &mut maybe_client {
+                c
+            } else {
+                thread::sleep(delay);
+                continue;
             };
+
+            let reply =
+                match self.handle_connection(client, &mut client_quit)? {
+                    Ok(_) if client_quit => {
+                        // Drop and close client socket.
+                        maybe_client.take();
+                        continue;
+                    }
+                    Ok(msg) => format!("{}{}", REPLY_FLAG_OK as char, msg),
+                    Err(msg) => format!("{}{}", REPLY_FLAG_ERR as char, msg),
+                };
             debug!(?reply);
-            c.sock.send(reply)?;
+            client.sock.send(reply)?;
         }
 
         Ok(())

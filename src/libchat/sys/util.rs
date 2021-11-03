@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 
-use libc::{self, __errno_location, strerror_r};
+use libc::{self, __errno_location, strerror_r, EINTR};
 use num_traits::{PrimInt, Unsigned};
 
 /// Invoke the given function, which may set `errno`.
@@ -26,6 +26,17 @@ pub fn errno_wrapper<Ret>(func: impl FnOnce() -> Ret) -> Result<Ret, String> {
                 .to_string())
         }
     }
+}
+
+/// Return whether the current value of `errno` is `EINTR` (Error INTeRrupt).
+///
+/// In most cases, an `EINTR` should be treated the same as any other error
+/// condition. However, in special instances, it may be useful to know whether
+/// the error was caused by a user interrupt (^C) and handle this accordingly.
+/// For example, in an event loop that has signal handling for `EINT`.
+#[inline]
+pub fn errno_was_intr() -> bool {
+    unsafe { *__errno_location() == EINTR }
 }
 
 /// Convert any unsigned int type from host byte order to network byte order.
