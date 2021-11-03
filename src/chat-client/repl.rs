@@ -9,7 +9,9 @@ use tracing::trace;
 
 use super::client::TcpClient;
 
-use libchat::err::MyResult;
+use libchat::{
+    err::MyResult, PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN,
+};
 
 macro_rules! _HELP_FORMAT {
     () => {
@@ -232,14 +234,16 @@ impl Repl {
         trace!(args = ?newuser_args, "command NEWUSER");
 
         if let Some((user, pass)) = newuser_args {
-            if user.len() < 3 || user.len() > 32 {
-                self.print_err(
-                    "newuser: USER must be 3 to 32 characters long, inclusive",
-                )?;
-            } else if pass.len() < 4 || pass.len() > 8 {
-                self.print_err(
-                    "newuser: PASS must be 4 to 8 characters long, inclusive",
-                )?;
+            if user.len() < USERNAME_MIN || user.len() > USERNAME_MAX {
+                self.print_err(format!(
+                    "newuser: USER must be {} to {} characters long, inclusive",
+                    USERNAME_MIN, USERNAME_MAX
+                ))?;
+            } else if pass.len() < PASSWORD_MIN || pass.len() > PASSWORD_MAX {
+                self.print_err(format!(
+                    "newuser: PASS must be {} to {} characters long, inclusive",
+                    PASSWORD_MIN, PASSWORD_MAX
+                ))?;
             } else {
                 self.client.send_cmd(&["newuser", user, pass])?;
                 self.server_reply()?;

@@ -14,8 +14,8 @@ use libchat::{
     err::MyResult,
     setup_int_handler,
     sys::{ServerSocket, SockAddr, SocketCommon},
-    CmdResult, UsersDao, COMMAND_SEP, MSG_MAX, RESPONSE_FLAG_ERR,
-    RESPONSE_FLAG_OK,
+    CmdResult, UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
+    REPLY_FLAG_OK,
 };
 use tracing::{debug, info};
 
@@ -82,8 +82,8 @@ impl TcpServer {
                     client.take();
                     continue;
                 }
-                Ok(msg) => format!("{}{}", RESPONSE_FLAG_OK as char, msg),
-                Err(msg) => format!("{}{}", RESPONSE_FLAG_ERR as char, msg),
+                Ok(msg) => format!("{}{}", REPLY_FLAG_OK as char, msg),
+                Err(msg) => format!("{}{}", REPLY_FLAG_ERR as char, msg),
             };
             debug!(?reply);
             c.sock.send(reply)?;
@@ -101,7 +101,7 @@ impl TcpServer {
         client: &mut Client,
         quit: &mut bool,
     ) -> CmdResult {
-        let cmd = client.sock.recv(MSG_MAX)?;
+        let cmd = client.sock.recv(COMMAND_MAX)?;
         debug!(%cmd);
         let cmd: Vec<_> = cmd.split(COMMAND_SEP).collect();
         if cmd.is_empty() {

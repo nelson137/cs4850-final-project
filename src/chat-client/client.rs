@@ -5,7 +5,7 @@ use tracing::trace;
 use libchat::{
     err::MyResult,
     sys::{ClientSocket, SockAddr, SocketCommon},
-    CmdResult, COMMAND_SEP, MSG_MAX, RESPONSE_FLAG_ERR, RESPONSE_FLAG_OK,
+    CmdResult, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR, REPLY_FLAG_OK,
 };
 
 /// Wrapper type that manages client-side networking.
@@ -51,15 +51,15 @@ impl TcpClient {
     /// Return the reply from the server indicating whether the previous command
     /// succeeded or failed.
     pub fn recv_reply(&self) -> CmdResult {
-        let reply = self.sock.recv(MSG_MAX)?;
+        let reply = self.sock.recv(COMMAND_MAX)?;
         trace!(msg = ?reply, "server response");
         match reply.as_bytes() {
             // Received string with Ok flag for first byte
-            [RESPONSE_FLAG_OK, rest @ ..] => {
+            [REPLY_FLAG_OK, rest @ ..] => {
                 Ok(Ok(String::from_utf8_lossy(rest).to_string()))
             }
             // Received string with Error flag for first byte
-            [RESPONSE_FLAG_ERR, rest @ ..] => {
+            [REPLY_FLAG_ERR, rest @ ..] => {
                 Ok(Err(String::from_utf8_lossy(rest).to_string()))
             }
             // Received string with first byte being neither Ok nor Error flag
