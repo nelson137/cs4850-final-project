@@ -164,20 +164,19 @@ pub trait SocketCommon: From<c_int> {
 
 /// Store the necesssary data and implement `Display` such that this socket can
 /// be formatted nicely and printed.
-pub struct SocketDisplay<'a> {
-    name: &'a str,
+pub struct SocketDisplay {
     fd: c_int,
 }
 
-impl<'a> SocketDisplay<'a> {
-    fn new(name: &'a str, fd: c_int) -> Self {
-        Self { name, fd }
+impl SocketDisplay {
+    fn new(fd: c_int) -> Self {
+        Self { fd }
     }
 }
 
-impl Display for SocketDisplay<'_> {
+impl Display for SocketDisplay {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_fmt(format_args!("{}{{{}}}", self.name, self.fd))
+        f.write_fmt(format_args!("{}", self.fd))
     }
 }
 
@@ -218,7 +217,7 @@ impl SocketCommon for ServerSocket {
 
     #[inline]
     fn display(&self) -> SocketDisplay {
-        SocketDisplay::new("ServerSocket", self.sock)
+        SocketDisplay::new(self.sock)
     }
 }
 
@@ -291,7 +290,7 @@ impl SocketCommon for ClientSocket {
 
     #[inline]
     fn display(&self) -> SocketDisplay {
-        SocketDisplay::new("ClientSocket", self.sock)
+        SocketDisplay::new(self.sock)
     }
 }
 
