@@ -1,0 +1,6 @@
+*
+!src
+!build.rs
+!Cargo.toml
+!.env
+!users.txt
