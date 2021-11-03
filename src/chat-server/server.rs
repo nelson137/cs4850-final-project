@@ -14,8 +14,7 @@ use libchat::{
     err::MyResult,
     setup_int_handler,
     sys::{errno_was_intr, ServerSocket, SockAddr, SocketCommon},
-    CmdResult, UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
-    REPLY_FLAG_OK,
+    UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR, REPLY_FLAG_OK,
 };
 use tracing::{debug, info};
 
@@ -83,18 +82,12 @@ impl TcpServer {
                 continue;
             };
 
-            let reply =
-                match self.handle_connection(client, &mut client_quit)? {
-                    Ok(_) if client_quit => {
-                        // Drop and close client socket.
-                        maybe_client.take();
-                        continue;
-                    }
-                    Ok(msg) => format!("{}{}", REPLY_FLAG_OK as char, msg),
-                    Err(msg) => format!("{}{}", REPLY_FLAG_ERR as char, msg),
-                };
-            debug!(?reply);
-            client.sock.send(reply)?;
+            self.handle_connection(client, &mut client_quit)?;
+
+            if client_quit {
+                // Drop and close client socket.
+                maybe_client.take();
+            }
         }
 
         Ok(())
@@ -108,33 +101,43 @@ impl TcpServer {
         &mut self,
         client: &mut Client,
         quit: &mut bool,
-    ) -> CmdResult {
+    ) -> MyResult<()> {
         let cmd = client.sock.recv(COMMAND_MAX)?;
-        debug!(%cmd);
+        debug!(sock = %client.sock.display(), ?cmd, "received command");
+
         let cmd: Vec<_> = cmd.split(COMMAND_SEP).collect();
         if cmd.is_empty() {
-            return Ok(Err("command contains no separators".to_string()));
+            return Err("command contains no separators".to_string().into());
+        }
+
+        macro_rules! reply_invalid_num_args {
+            ($expected:expr, $actual:expr) => {
+                client.reply_err(format!(
+                    "expected {} arguments but got {}",
+                    $expected, $actual
+                ))
+            };
         }
 
         match cmd.as_slice() {
             ["quit"] => {
                 *quit = true;
-                Ok(Ok(String::default()))
+                client.reply_ok(String::default())
             }
+
             ["newuser", user, pass] => self.cmd_newuser(client, user, pass),
-            ["newuser", rest @ ..] => {
-                Ok(Err(format!("expected 2 arguments but got {}", rest.len())))
-            }
+            ["newuser", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
+
             ["login", user, pass] => self.cmd_login(client, user, pass),
-            ["login", rest @ ..] => {
-                Ok(Err(format!("expected 2 arguments but got {}", rest.len())))
-            }
+            ["login", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
+
             ["logout"] => self.cmd_logout(client),
-            ["logout", rest @ ..] => {
-                Ok(Err(format!("expected 1 argument but got {}", rest.len())))
-            }
+            ["logout", rest @ ..] => reply_invalid_num_args!(0, rest.len()),
+
             ["send", msg] => self.cmd_send(client, msg),
-            _ => return Ok(Err("command not recognized".to_string())),
+            ["send", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
+
+            _ => client.reply_err("command not recognized"),
         }
     }
 
@@ -150,17 +153,15 @@ impl TcpServer {
         client: &Client,
         user: &str,
         pass: &str,
-    ) -> CmdResult {
+    ) -> MyResult<()> {
         if client.is_logged_in() {
-            Ok(Err(
-                "you may not create a new user while logged in".to_string()
-            ))
+            client.reply_err("you may not create a new user while logged in")
         } else {
             if self.users.insert(user.to_string(), pass.to_string()) {
                 info!(name = user, "created user account");
-                Ok(Ok(format!("user account created: {}", user)))
+                client.reply_ok(format!("user account created: {}", user))
             } else {
-                Ok(Err(format!("user already exists: {}", user)))
+                client.reply_err(format!("user already exists: {}", user))
             }
         }
     }
@@ -173,17 +174,17 @@ impl TcpServer {
         client: &mut Client,
         user: &str,
         pass: &str,
-    ) -> CmdResult {
+    ) -> MyResult<()> {
         if client.is_logged_in() {
-            Ok(Err("you are already logged in".to_string()))
+            client.reply_err("you are already logged in")
         } else {
             match &self.users.entry(user) {
                 Entry::Occupied(oe) if oe.get() == pass => {
                     client.login(user);
                     info!(name = ?user, "user login");
-                    Ok(Ok(format!("{} joined the room.", user)))
+                    client.reply_ok(format!("{} joined the room.", user))
                 }
-                _ => Ok(Err("incorrect username or password".to_string())),
+                _ => client.reply_err("incorrect username or password"),
             }
         }
     }
@@ -191,25 +192,25 @@ impl TcpServer {
     /// Invoke the logout command.
     ///
     /// This command can only be called when logged in.
-    fn cmd_logout(&self, client: &mut Client) -> CmdResult {
+    fn cmd_logout(&self, client: &mut Client) -> MyResult<()> {
         match client.logout() {
             Some(user) => {
                 info!(name = ?user, "user logout");
-                Ok(Ok(format!("{} left the room.", user)))
+                client.reply_ok(format!("{} left the room.", user))
             }
-            None => Ok(Err("you must be logged in to logout".to_string())),
+            None => client.reply_ok("you must be logged in to logout"),
         }
     }
 
     /// Invoke the send command.
     ///
     /// This command can only be called when logged in.
-    fn cmd_send(&self, client: &Client, msg: &str) -> CmdResult {
+    fn cmd_send(&self, client: &Client, msg: &str) -> MyResult<()> {
         if let Some(user) = &client.username {
-            info!(name = ?user, msg = msg, "user send");
-            Ok(Ok(format!("{}: {}", user, msg)))
+            info!(name = ?user, msg, "user send");
+            client.reply_ok(format!("{}: {}", user, msg))
         } else {
-            Ok(Err("you must be logged in to send".to_string()))
+            client.reply_err("you must be logged in to send")
         }
     }
 }
@@ -256,5 +257,21 @@ impl Client {
     #[inline]
     fn logout(&mut self) -> Option<String> {
         self.username.take()
+    }
+
+    /// Send an ok reply to this client with the correct first byte,
+    /// `REPLY_FLAG_OK`.
+    #[inline]
+    fn reply_ok(&self, msg: impl AsRef<str>) -> MyResult<()> {
+        self.sock
+            .send(format!("{}{}", REPLY_FLAG_OK as char, msg.as_ref()))
+    }
+
+    /// Send an error reply to this client with the correct first byte,
+    /// `REPLY_FLAG_ERR`.
+    #[inline]
+    fn reply_err(&self, msg: impl AsRef<str>) -> MyResult<()> {
+        self.sock
+            .send(format!("{}{}", REPLY_FLAG_ERR as char, msg.as_ref()))
     }
 }

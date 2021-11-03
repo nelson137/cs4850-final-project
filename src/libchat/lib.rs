@@ -6,7 +6,6 @@ mod banner;
 pub use banner::*;
 
 pub mod err;
-use err::MyResult;
 
 mod signal;
 pub use signal::*;
@@ -50,16 +49,14 @@ pub const COMMAND_MAX: usize = USERNAME_MAX + 2 + MSG_MAX + 1;
 /// The character to use to separate server command arguments.
 pub const COMMAND_SEP: &str = "\x02";
 
-/// Represent a result whose `Ok` is a logical result:
+/// Represent a server reply.
 ///
-/// - An `Err` represents a server error that must be handled.
-/// - An `Ok` with a logical `Ok` represents a command that completed
-/// successfully. This will be sent back to the client.
-/// - An `Ok` with a logical `Err` represents a command that failed.
+/// - An `Ok` represents a command that completed successfully.
+/// - An `Err` represents a command that failed.
 ///
-/// Logical `Ok` and `Err` values will be sent back to the client as a response
-/// with either `RESPONSE_FLAG_OK` or `RESPONSE_FLAG_ERR` as a prefix.
-pub type CmdResult = MyResult<Result<String, String>>;
+/// The reply will be sent to the client with the first byte being either
+/// `RESPONSE_FLAG_OK` or `RESPONSE_FLAG_ERR`.
+pub type ServerReply = Result<String, String>;
 
 /// Magic number byte for server command replies indicating a success.
 ///
