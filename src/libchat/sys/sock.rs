@@ -39,8 +39,19 @@ impl SockAddr {
     /// Create a new `SockAddr` describing any address and the given port.
     pub fn new(port: u16) -> Self {
         Self {
+            #[cfg(target_os = "linux")]
             addr: [sockaddr_in {
                 sin_family: AF_INET as u16,
+                sin_port: hton(port),
+                sin_addr: in_addr {
+                    s_addr: hton(INADDR_LOOPBACK),
+                },
+                sin_zero: [0; 8],
+            }],
+            #[cfg(target_os = "macos")]
+            addr: [sockaddr_in {
+                sin_len: 0,
+                sin_family: AF_INET as u8,
                 sin_port: hton(port),
                 sin_addr: in_addr {
                     s_addr: hton(INADDR_LOOPBACK),

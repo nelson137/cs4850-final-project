@@ -1,6 +1,5 @@
-use std::ffi::CStr;
+use std::io;
 
-use libc::{self, __errno_location, strerror_r, EINTR};
 use num_traits::{PrimInt, Unsigned};
 
 /// Invoke the given function, which may set `errno`.
@@ -10,21 +9,16 @@ use num_traits::{PrimInt, Unsigned};
 /// return an `Err` of a string description of the error.
 #[inline]
 pub fn errno_wrapper<Ret>(func: impl FnOnce() -> Ret) -> Result<Ret, String> {
-    unsafe {
-        let errno = __errno_location();
-        *errno = 0;
+    let ret = func();
 
-        let ret = func();
+    let err = io::Error::last_os_error();
 
-        if *errno == 0 {
-            Ok(ret)
-        } else {
-            let mut err_str_buf = [0_i8; 256];
-            strerror_r(*errno, err_str_buf.as_mut_ptr(), err_str_buf.len());
-            Err(CStr::from_ptr(err_str_buf.as_ptr())
-                .to_string_lossy()
-                .to_string())
-        }
+    // SAFETY: Error::raw_os_error() returns `Some` iff the `Error` is an OS
+    //         error, which is guaranteed by `Error::last_os_error()`
+    if err.raw_os_error().unwrap() == 0 {
+        Ok(ret)
+    } else {
+        Err(err.to_string())
     }
 }
 
@@ -36,7 +30,7 @@ pub fn errno_wrapper<Ret>(func: impl FnOnce() -> Ret) -> Result<Ret, String> {
 /// For example, in an event loop that has signal handling for `EINT`.
 #[inline]
 pub fn errno_was_intr() -> bool {
-    unsafe { *__errno_location() == EINTR }
+    io::Error::last_os_error().kind() == io::ErrorKind::Interrupted
 }
 
 /// Convert any unsigned int type from host byte order to network byte order.
