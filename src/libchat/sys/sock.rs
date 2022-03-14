@@ -1,6 +1,7 @@
 use std::{
     ffi::{CStr, CString},
     fmt::{self, Display},
+    io,
     mem::size_of,
 };
 
@@ -11,7 +12,7 @@ use libc::{
 };
 use tracing::debug;
 
-use super::{errno_wrapper, hton};
+use super::hton;
 
 use crate::{err::MyResult, LISTEN_BACKLOG, MSG_MAX};
 
@@ -87,8 +88,13 @@ pub trait SocketCommon: From<c_int> {
     ///
     /// **For internal use only.**
     fn _create_raw() -> MyResult<c_int> {
-        errno_wrapper(|| unsafe { socket(AF_INET, SOCK_STREAM, 0) })
-            .map_err(|err| format!("failed to create socket: {}", err).into())
+        let fd = unsafe { socket(AF_INET, SOCK_STREAM, 0) };
+        if fd < 0 {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to create socket: {}", err).into())
+        } else {
+            Ok(fd)
+        }
     }
 
     /// Return the file descriptor of this socket.
@@ -117,8 +123,14 @@ pub trait SocketCommon: From<c_int> {
             revents: 0,
         }];
 
-        errno_wrapper(|| unsafe { poll(poll_fds.as_mut_ptr(), 1, 0) } > 0)
-            .map_err(|err| format!("failed to poll: {}", err).into())
+        let n_ready = unsafe { poll(poll_fds.as_mut_ptr(), 1, 0) };
+
+        if n_ready < 0 {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to poll: {}", err).into())
+        } else {
+            Ok(n_ready > 0)
+        }
     }
 
     /// Wrapper for socket API `send()`.
@@ -134,22 +146,24 @@ pub trait SocketCommon: From<c_int> {
             );
         }
 
-        errno_wrapper(|| unsafe {
-            write(self.fd(), buf, size);
-        })
-        .map_err(|err| format!("failed to send(): {}", err).into())
+        if unsafe { write(self.fd(), buf, size) < 0 } {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to send(): {}", err).into())
+        } else {
+            Ok(())
+        }
     }
 
     /// Wrapper for socket API `recv()`.
     fn recv(&self, size: usize) -> MyResult<String> {
-        // Create a buffer with `size` bytes initialized to 0
         let mut buf = vec![0_u8; size];
         let buf_ptr = buf.as_mut_ptr() as *mut c_void;
 
-        errno_wrapper(|| unsafe {
-            read(self.fd(), buf_ptr, size - 1);
-        })
-        .map_err(|err| format!("failed to recv(): {}", err))?;
+        let n_bytes = unsafe { read(self.fd(), buf_ptr, size - 1) };
+        if n_bytes < 0 {
+            let err = io::Error::last_os_error();
+            return Err(format!("failed to recv(): {}", err).into());
+        }
 
         // Make sure buffer is null-terminated just in case it gets completely
         // filled. This should never happen because the buffer is
@@ -240,30 +254,38 @@ impl ServerSocket {
         // the CLOSE_WAIT state.
         let value = [1 as c_int];
         let value_ptr = value.as_ptr() as *const c_void;
-        errno_wrapper(|| unsafe {
+        let ret = unsafe {
             setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, value_ptr, SIZEOF!(c_int))
-        })
-        .map_err(|err| {
-            format!("failed to set socket option SO_REUSEADDR: {}", err)
-        })?;
+        };
 
-        Ok(fd.into())
+        if ret < 0 {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to set socket option SO_REUSEADDR: {}", err)
+                .into())
+        } else {
+            Ok(fd.into())
+        }
     }
 
     /// Wrapper for socket API `bind()`.
     pub fn bind(&self, addr: &mut SockAddr) -> MyResult<()> {
-        errno_wrapper(|| unsafe {
-            bind(self.sock, addr.as_mut_ptr(), SIZEOF!(sockaddr_in));
-        })
-        .map_err(|err| format!("failed to bind(): {}", err).into())
+        let size = SIZEOF!(sockaddr_in);
+        if unsafe { bind(self.sock, addr.as_mut_ptr(), size) < 0 } {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to bind(): {}", err).into())
+        } else {
+            Ok(())
+        }
     }
 
     /// Wrapper for socket API `listen()`.
     pub fn listen(&self) -> MyResult<()> {
-        errno_wrapper(|| unsafe {
-            listen(self.sock, LISTEN_BACKLOG);
-        })
-        .map_err(|err| format!("failed to listen(): {}", err).into())
+        if unsafe { listen(self.sock, LISTEN_BACKLOG) < 0 } {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to listen(): {}", err).into())
+        } else {
+            Ok(())
+        }
     }
 
     /// Wrapper for socket API `accept()`.
@@ -272,10 +294,17 @@ impl ServerSocket {
         // Use single-element array because it provides a method for
         // converting to a mutable pointer.
         let mut size = [SIZEOF!(sockaddr_in)];
-        errno_wrapper(|| unsafe {
-            accept(self.sock, addr.as_mut_ptr(), size.as_mut_ptr()).into()
-        })
-        .map_err(|err| format!("failed to accept(): {}", err).into())
+
+        let fd =
+            unsafe { accept(self.sock, addr.as_mut_ptr(), size.as_mut_ptr()) };
+
+        if fd < 0 {
+            let err = io::Error::last_os_error();
+            Err(format!("failed to accept(): {}", err).into())
+        } else {
+            debug!(sock = fd, "accepted client");
+            Ok(fd.into())
+        }
     }
 }
 
