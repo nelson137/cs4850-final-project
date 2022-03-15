@@ -92,7 +92,7 @@ impl Repl {
     }
 
     //==================================================
-    // Utilities - IO
+    // Utilities - Printing
     //==================================================
 
     /// Return the styalized string of the prompt according to the login state.
