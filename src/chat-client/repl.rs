@@ -55,8 +55,7 @@ pub struct Repl {
     prompt_in_notlogged: ColoredString,
     prompt_in_logged: ColoredString,
     prompt_out_err: ColoredString,
-    prompt_out_err_server: ColoredString,
-    prompt_out_info_server: ColoredString,
+    prompt_out_info: ColoredString,
 }
 
 impl Repl {
@@ -69,9 +68,8 @@ impl Repl {
             help_msg: build_help(),
             prompt_in_notlogged: "< ".bold(),
             prompt_in_logged: "< ".green().bold(),
-            prompt_out_err: "error: ".red().bold(),
-            prompt_out_err_server: "> error: ".red().bold(),
-            prompt_out_info_server: "> ".bright_black(),
+            prompt_out_err: "> error: ".red().bold(),
+            prompt_out_info: "> ".bright_black(),
         }
     }
 
@@ -85,8 +83,8 @@ impl Repl {
     fn server_reply(&self) -> MyResult<bool> {
         let reply = self.client.recv_reply()?;
         match &reply {
-            Ok(msg) => self.print_info_server(msg)?,
-            Err(msg) => self.print_err_server(msg)?,
+            Ok(msg) => self.print_info(msg)?,
+            Err(msg) => self.print_err(msg)?,
         }
         Ok(reply.is_ok())
     }
@@ -133,22 +131,12 @@ impl Repl {
         Ok(())
     }
 
-    /// Print `msg` with the server error prompt.
-    ///
-    /// This is for command responses from the server that indicate failure.
-    #[inline]
-    fn print_err_server(&self, msg: impl AsRef<str>) -> MyResult<()> {
-        self.print(self.prompt_out_err_server.to_string())?;
-        self.println(msg.as_ref())?;
-        Ok(())
-    }
-
     /// Print `msg` with the server info prompt.
     ///
     /// This is for command responses from the server that indicate success.
     #[inline]
-    fn print_info_server(&self, msg: impl AsRef<str>) -> MyResult<()> {
-        self.print(self.prompt_out_info_server.to_string())?;
+    fn print_info(&self, msg: impl AsRef<str>) -> MyResult<()> {
+        self.print(self.prompt_out_info.to_string())?;
         self.println(msg.as_ref())?;
         Ok(())
     }
