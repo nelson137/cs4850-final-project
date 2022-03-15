@@ -30,22 +30,16 @@ impl TcpClient {
         Ok(Self { sock })
     }
 
-    /// Send the given command `parts` to the server. `parts` must contain at
-    /// least 1 argument, the command name, and any number of arguments.
+    /// Send the given command to the server.
     ///
     /// The command name and arguments are separated by a special byte that is
     /// expected by the server.
     ///
-    /// Note: calling this method with an empty array will cause a panic.
+    /// For example, if the separator is "|" and the command parts are
+    /// ["cmd", "arg1", "arg2"], then "cmd|arg1|arg2" is sent. If the command
+    /// parts are ["cmd"], then "cmd" is sent with no separators.
     pub fn send_cmd<'a>(&self, parts: impl AsRef<[&'a str]>) -> MyResult<()> {
-        let parts = parts.as_ref();
-        let mut server_cmd = parts[0].to_string();
-        for &arg in &parts[1..] {
-            server_cmd += COMMAND_SEP;
-            server_cmd += arg;
-        }
-        self.sock.send(server_cmd)?;
-        Ok(())
+        self.sock.send(parts.as_ref().join(COMMAND_SEP))
     }
 
     /// Return the reply from the server indicating whether the previous command
