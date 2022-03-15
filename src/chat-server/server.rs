@@ -50,7 +50,7 @@ impl TcpServer {
         let delay = Duration::from_millis(25);
 
         let mut maybe_client = None;
-        let mut client_quit = false;
+        let mut client_logout = false;
 
         loop {
             if should_stop.load(Ordering::Relaxed) {
@@ -82,9 +82,9 @@ impl TcpServer {
                 continue;
             };
 
-            self.handle_connection(client, &mut client_quit)?;
+            self.handle_connection(client, &mut client_logout)?;
 
-            if client_quit {
+            if client_logout {
                 // Drop and close client socket.
                 maybe_client.take();
             }
@@ -100,7 +100,7 @@ impl TcpServer {
     fn handle_connection(
         &mut self,
         client: &mut Client,
-        quit: &mut bool,
+        logout: &mut bool,
     ) -> MyResult<()> {
         let cmd = client.sock.recv(COMMAND_MAX)?;
         debug!(sock = %client.sock.display(), ?cmd, "received command");
@@ -120,18 +120,16 @@ impl TcpServer {
         }
 
         match cmd.as_slice() {
-            ["quit"] => {
-                *quit = true;
-                client.reply_ok(String::default())
-            }
-
             ["newuser", user, pass] => self.cmd_newuser(client, user, pass),
             ["newuser", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
 
             ["login", user, pass] => self.cmd_login(client, user, pass),
             ["login", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
 
-            ["logout"] => self.cmd_logout(client),
+            ["logout"] => {
+                *logout = true;
+                self.cmd_logout(client)
+            }
             ["logout", rest @ ..] => reply_invalid_num_args!(0, rest.len()),
 
             ["send", msg] => self.cmd_send(client, msg),

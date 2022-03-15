@@ -19,16 +19,16 @@ macro_rules! _HELP_FORMAT {
 Commands always available:
 
   help                 Print this help message.
-  quit                 Quit Chat Boat. Will log out if logged in.
 
 Commands only available when {} logged in:
 
+  quit                 Quit Chat Boat.
   newuser USER PASS    Create a new user with the given credentials.
   login USER PASS      Login to the chat room with the given credentials.
 
 Commands only available when logged in:
 
-  logout               Logout of the chat room.
+  logout               Logout of the chat room and quit Chat Boat.
   send MSG             Broadcast a message to everyone in the chat room.
 
 "
@@ -182,12 +182,16 @@ impl Repl {
             match cmd {
                 "help" => self.print(self.help_msg.clone())?,
                 "quit" => {
-                    self.cmd_quit()?;
-                    break;
+                    if self.cmd_quit(args)? {
+                        break;
+                    }
                 }
                 "newuser" => self.cmd_newuser(args)?,
                 "login" => self.cmd_login(args)?,
-                "logout" => self.cmd_logout(args)?,
+                "logout" => {
+                    self.cmd_logout(args)?;
+                    break;
+                }
                 "send" => self.cmd_send(args)?,
                 cmd => {
                     self.print_err(format!("command not recognized: {}", cmd))?;
@@ -202,21 +206,30 @@ impl Repl {
     // Commands
     //==================================================
 
-    /// Send a quit command to the server.
+    /// Exit the program if not logged in.
     ///
-    /// syntax: quit
+    /// syntax: quit [ARGS...]
     ///
-    /// Note: this command has less strict syntax; it allows arguments that are
-    /// ignored.
-    fn cmd_quit(&mut self) -> MyResult<()> {
+    /// This command has special behavior since it is client-side only and may
+    /// only be used when not logged in to exit the program. If logged in, it
+    /// will forward the command to the server like the other commands, the
+    /// server will reply with an error since it is not implemented, and false
+    /// will be returned indicating not to quit. If not logged in, true will be
+    /// returned indicating to quit.
+    ///
+    /// Note: This command has less strict syntax; extra arguments are allowed
+    /// and will be ignored.
+    fn cmd_quit(&self, args: &str) -> MyResult<bool> {
         trace!("command QUIT");
-        if self.logged_in {
-            self.cmd_logout("")?;
-        }
-        self.client.send_cmd(&["quit"])?;
-        self.println("goodbye.")?;
 
-        Ok(())
+        if self.logged_in {
+            self.client.send_cmd(&["quit", args])?;
+            self.server_reply()?;
+            Ok(false)
+        } else {
+            self.println("goodbye.")?;
+            Ok(true)
+        }
     }
 
     /// Parse `args` for the newuser command and send them to the server.
