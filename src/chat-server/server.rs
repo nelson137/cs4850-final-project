@@ -135,7 +135,9 @@ impl TcpServer {
             ["send", msg] => self.cmd_send(client, msg),
             ["send", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
 
-            _ => client.reply_err("command not recognized"),
+            _ => {
+                client.reply_err(format!("command not recognized: {}", cmd[0]))
+            }
         }
     }
 
