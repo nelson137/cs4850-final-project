@@ -181,7 +181,7 @@ impl Repl {
                     break;
                 }
                 "send" => self.cmd_send(args)?,
-                cmd => {
+                _ => {
                     self.print_err(format!("command not recognized: {}", cmd))?;
                 }
             }

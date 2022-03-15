@@ -1,6 +1,6 @@
 use std::{
     collections::hash_map::Entry,
-    fmt::Display,
+    fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -215,8 +215,8 @@ impl TcpServer {
     }
 }
 
-impl Display for TcpServer {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for TcpServer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.sock.display())
     }
 }

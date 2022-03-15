@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt;
 
 use tracing::trace;
 
@@ -69,8 +69,8 @@ impl TcpClient {
     }
 }
 
-impl Display for TcpClient {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for TcpClient {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.sock.display())
     }
 }
