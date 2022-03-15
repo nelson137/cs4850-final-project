@@ -19,6 +19,7 @@ fn main() {
 
 fn run() -> MyResult<()> {
     tracing_subscriber::fmt()
+        .with_target(false)
         .with_max_level(STATIC_MAX_LEVEL)
         .init();
 
