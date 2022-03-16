@@ -22,7 +22,6 @@ Commands always available:
 
 Commands only available when {} logged in:
 
-  quit                 Quit Chat Boat.
   newuser USER PASS    Create a new user with the given credentials.
   login USER PASS      Login to the chat room with the given credentials.
 
@@ -167,21 +166,14 @@ impl Repl {
                 None => continue,
             };
 
-            let mut quit = false;
+            let mut exit = false;
 
             let cmd_re = match cmd {
                 "help" => self.print(self.help_msg.clone()),
-                "quit" => match self.cmd_quit(args) {
-                    Ok(q) => {
-                        quit = q;
-                        Ok(())
-                    }
-                    Err(err) => Err(err),
-                },
                 "newuser" => self.cmd_newuser(args),
                 "login" => self.cmd_login(args),
                 "logout" => {
-                    quit = true;
+                    exit = true;
                     self.cmd_logout(args)
                 }
                 "send" => self.cmd_send(args),
@@ -192,7 +184,7 @@ impl Repl {
                 info!(%error, "error while executing command");
             }
 
-            if quit {
+            if exit {
                 break;
             }
         }
@@ -203,32 +195,6 @@ impl Repl {
     //==================================================
     // Commands
     //==================================================
-
-    /// Exit the program if not logged in.
-    ///
-    /// syntax: quit [ARGS...]
-    ///
-    /// This command has special behavior since it is client-side only and may
-    /// only be used when not logged in to exit the program. If logged in, it
-    /// will forward the command to the server like the other commands, the
-    /// server will reply with an error since it is not implemented, and false
-    /// will be returned indicating not to quit. If not logged in, true will be
-    /// returned indicating to quit.
-    ///
-    /// Note: This command has less strict syntax; extra arguments are allowed
-    /// and will be ignored.
-    fn cmd_quit(&self, args: &str) -> MyResult<bool> {
-        trace!("command QUIT");
-
-        if self.logged_in {
-            self.client.send_cmd(&["quit", args])?;
-            self.server_reply()?;
-            Ok(false)
-        } else {
-            self.println("goodbye.")?;
-            Ok(true)
-        }
-    }
 
     /// Parse `args` for the newuser command and send them to the server.
     ///
