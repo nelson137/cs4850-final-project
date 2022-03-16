@@ -216,34 +216,30 @@ impl Repl {
         if self.logged_in {
             return self.print_err(E_NOT_LOGGED_OUT);
         }
+        trace!(args = ?args, "command NEWUSER");
 
-        let re_newuser_args = Regex::new(r"^\s*(\S+)\s+(\S+)\s*$")?;
-        let newuser_args = match re_newuser_args.captures(args) {
-            None => None,
-            Some(caps) => match (caps.get(1), caps.get(2)) {
-                (Some(u), Some(p)) => Some((u.as_str(), p.as_str())),
-                _ => None,
-            },
-        };
-        trace!(args = ?newuser_args, "command NEWUSER");
-
-        if let Some((user, pass)) = newuser_args {
-            if user.len() < USERNAME_MIN || user.len() > USERNAME_MAX {
-                self.print_err(format!(
-                    "Error. User name must be {}-{} characters",
-                    USERNAME_MIN, USERNAME_MAX
-                ))?;
-            } else if pass.len() < PASSWORD_MIN || pass.len() > PASSWORD_MAX {
-                self.print_err(format!(
-                    "Error. Password must be {}-{} characters",
-                    PASSWORD_MIN, PASSWORD_MAX
-                ))?;
-            } else {
-                self.client.send_cmd(&["newuser", user, pass])?;
-                self.server_reply()?;
+        let mut a = args.split_ascii_whitespace();
+        let (user, pass) = match (a.next(), a.next(), a.next()) {
+            (Some(u), Some(p), None) => (u, p),
+            _ => {
+                self.print_err("Error. Syntax: newuser USER PASS")?;
+                return Ok(());
             }
+        };
+
+        if user.len() < USERNAME_MIN || user.len() > USERNAME_MAX {
+            self.print_err(format!(
+                "Error. User name must be {}-{} characters",
+                USERNAME_MIN, USERNAME_MAX
+            ))?;
+        } else if pass.len() < PASSWORD_MIN || pass.len() > PASSWORD_MAX {
+            self.print_err(format!(
+                "Error. Password must be {}-{} characters",
+                PASSWORD_MIN, PASSWORD_MAX
+            ))?;
         } else {
-            self.print_err("Error. Syntax: newuser USER PASS")?;
+            self.client.send_cmd(&["newuser", user, pass])?;
+            self.server_reply()?;
         }
 
         Ok(())
@@ -258,24 +254,20 @@ impl Repl {
         if self.logged_in {
             return self.print_err(E_NOT_LOGGED_OUT);
         }
+        trace!(args = ?args, "command LOGIN");
 
-        let re_login_args = Regex::new(r"^\s*(\S+)\s+(\S+)\s*$")?;
-        let login_args = match re_login_args.captures(args) {
-            None => None,
-            Some(caps) => match (caps.get(1), caps.get(2)) {
-                (Some(u), Some(p)) => Some((u.as_str(), p.as_str())),
-                _ => None,
-            },
-        };
-        trace!(args = ?login_args, "command LOGIN");
-
-        if let Some((user, pass)) = login_args {
-            self.client.send_cmd(&["login", user, pass])?;
-            if self.server_reply()? {
-                self.logged_in = true;
+        let mut a = args.split_ascii_whitespace();
+        let (user, pass) = match (a.next(), a.next(), a.next()) {
+            (Some(u), Some(p), None) => (u, p),
+            _ => {
+                self.print_err("Error. Syntax: login USER PASS")?;
+                return Ok(());
             }
-        } else {
-            self.print_err("Error. Syntax: login USER PASS")?;
+        };
+
+        self.client.send_cmd(&["login", user, pass])?;
+        if self.server_reply()? {
+            self.logged_in = true;
         }
 
         Ok(())
@@ -292,7 +284,7 @@ impl Repl {
             return Ok(false);
         }
 
-        if !Regex::new(r"^\s*$")?.is_match(args) {
+        if !args.chars().all(|c| c.is_ascii_whitespace()) {
             self.print_err("Error. Syntax: logout")?;
             return Ok(false);
         }
