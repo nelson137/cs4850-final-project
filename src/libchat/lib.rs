@@ -58,11 +58,6 @@ pub const COMMAND_SEP: &str = "\x02";
 /// `RESPONSE_FLAG_OK` or `RESPONSE_FLAG_ERR`.
 pub type ServerReply = Result<String, String>;
 
-/// Magic number byte for server command replies indicating a success.
-///
-/// This must be the first byte of the reply string.
-pub const REPLY_FLAG_OK: u8 = 0x06;
-
 /// Magic number byte for server command replies indicating a failure.
 ///
 /// This must be the first byte of the reply string.

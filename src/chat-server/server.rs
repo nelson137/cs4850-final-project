@@ -13,7 +13,7 @@ use libchat::{
     err::MyResult,
     setup_int_handler,
     sys::{errno_was_intr, ServerSocket, SockAddr, SocketCommon},
-    UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR, REPLY_FLAG_OK,
+    UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
 };
 use tracing::{debug, info};
 
@@ -269,12 +269,10 @@ impl Client {
         self.username.take()
     }
 
-    /// Send an ok reply to this client with the correct first byte,
-    /// `REPLY_FLAG_OK`.
+    /// Send an ok reply to this client.
     #[inline]
     fn reply_ok(&self, msg: impl AsRef<str>) -> MyResult<()> {
-        self.sock
-            .send(format!("{}{}", REPLY_FLAG_OK as char, msg.as_ref()))
+        self.sock.send(msg)
     }
 
     /// Send an error reply to this client with the correct first byte,

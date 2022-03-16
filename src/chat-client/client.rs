@@ -3,7 +3,7 @@ use tracing::trace;
 use libchat::{
     err::MyResult,
     sys::{ClientSocket, SockAddr, SocketCommon},
-    ServerReply, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR, REPLY_FLAG_OK,
+    ServerReply, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
 };
 
 /// Wrapper type that manages client-side networking.
@@ -43,26 +43,15 @@ impl TcpClient {
     /// Return the reply from the server indicating whether the previous command
     /// succeeded or failed.
     pub fn recv_reply(&self) -> MyResult<ServerReply> {
-        let reply = self.sock.recv(COMMAND_MAX)?;
-        trace!(msg = ?reply, "server response");
-        match reply.as_bytes() {
-            // Received string with Ok flag for first byte
-            [REPLY_FLAG_OK, rest @ ..] => {
-                Ok(Ok(String::from_utf8_lossy(rest).to_string()))
-            }
-            // Received string with Error flag for first byte
-            [REPLY_FLAG_ERR, rest @ ..] => {
-                Ok(Err(String::from_utf8_lossy(rest).to_string()))
-            }
-            // Received string with first byte being neither Ok nor Error flag
-            // This should never happen
-            [f, ..] => {
-                Err(format!("server reply starts with invalid byte: {:?}", f)
-                    .into())
-            }
-            // Received empty string
-            // This should never happen
-            [] => Err("no reply".to_string().into()),
+        let msg = self.sock.recv(COMMAND_MAX)?;
+        trace!(msg = ?msg, "server response");
+        let msg_b = msg.as_bytes();
+        if !msg_b.is_empty() && msg_b[0] == REPLY_FLAG_ERR {
+            // Received string with error flag for first byte
+            Ok(Err(String::from_utf8_lossy(&msg_b[1..]).to_string()))
+        } else {
+            // Received non-error string
+            Ok(Ok(String::from_utf8_lossy(msg_b).to_string()))
         }
     }
 }
