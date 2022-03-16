@@ -1,6 +1,5 @@
 use std::{
     ffi::{CStr, CString},
-    fmt::{self, Display},
     io,
     mem::size_of,
 };
@@ -100,16 +99,13 @@ pub trait SocketCommon: From<c_int> {
     /// Return the file descriptor of this socket.
     fn fd(&self) -> c_int;
 
-    /// Return an object that implements `Display` (i.e. can be printed).
-    fn display(&self) -> SocketDisplay;
-
     /// Close this socket.
     ///
     /// Note: all types that implement the `SocketCommon` trait also implement
     /// `Drop` (i.e. the socket will be closed when the object goes out of
     /// scope).
     fn close(&self) {
-        debug!(sock=%self.display(), "closing socket");
+        debug!(sock=%self.fd(), "closing socket");
         unsafe {
             close(self.fd());
         }
@@ -187,24 +183,6 @@ pub trait SocketCommon: From<c_int> {
     }
 }
 
-/// Store the necesssary data and implement `Display` such that this socket can
-/// be formatted nicely and printed.
-pub struct SocketDisplay {
-    fd: c_int,
-}
-
-impl SocketDisplay {
-    fn new(fd: c_int) -> Self {
-        Self { fd }
-    }
-}
-
-impl Display for SocketDisplay {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_fmt(format_args!("{}", self.fd))
-    }
-}
-
 //==============================================================================
 // Server
 //==============================================================================
@@ -238,11 +216,6 @@ impl SocketCommon for ServerSocket {
     #[inline]
     fn fd(&self) -> c_int {
         self.sock
-    }
-
-    #[inline]
-    fn display(&self) -> SocketDisplay {
-        SocketDisplay::new(self.sock)
     }
 }
 
@@ -339,11 +312,6 @@ impl SocketCommon for ClientSocket {
     #[inline]
     fn fd(&self) -> c_int {
         self.sock
-    }
-
-    #[inline]
-    fn display(&self) -> SocketDisplay {
-        SocketDisplay::new(self.sock)
     }
 }
 

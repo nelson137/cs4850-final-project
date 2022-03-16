@@ -1,6 +1,5 @@
 use std::{
     collections::hash_map::Entry,
-    fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -33,7 +32,7 @@ impl TcpServer {
         let mut addr = SockAddr::new(port);
         sock.bind(&mut addr)?;
         sock.listen()?;
-        debug!(sock=%sock.display(), "created server socket");
+        debug!(sock=%sock.fd(), "created server socket");
         Ok(Self { sock, users })
     }
 
@@ -106,7 +105,7 @@ impl TcpServer {
             Ok(has_data) if !has_data => return true,
             Err(error) => {
                 info!(
-                    sock = %client.sock.display(),
+                    sock = %client.sock.fd(),
                     %error,
                     "failed to poll for client message"
                 );
@@ -118,19 +117,18 @@ impl TcpServer {
         let cmd = match client.sock.recv(COMMAND_MAX) {
             Ok(c) => c,
             Err(error) => {
-                info!(
-                    sock = %client.sock.display(),
+                info!(sock = %client.sock.fd(),
                     %error,
                     "failed to recv from client"
                 );
                 return false;
             }
         };
-        debug!(sock = %client.sock.display(), ?cmd, "received command");
+        debug!(sock = %client.sock.fd(), ?cmd, "received command");
 
         let cmd: Vec<_> = cmd.split(COMMAND_SEP).collect();
         if cmd.is_empty() {
-            info!(sock = %client.sock.display(), "received empty command");
+            info!(sock = %client.sock.fd(), "received empty command");
             return false;
         }
 
@@ -244,12 +242,6 @@ impl TcpServer {
         } else {
             client.reply_err("you must be logged in to send")
         }
-    }
-}
-
-impl fmt::Display for TcpServer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.sock.display())
     }
 }
 

@@ -1,5 +1,3 @@
-use std::fmt;
-
 use tracing::trace;
 
 use libchat::{
@@ -66,11 +64,5 @@ impl TcpClient {
             // This should never happen
             [] => Err("no reply".to_string().into()),
         }
-    }
-}
-
-impl fmt::Display for TcpClient {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.sock.display())
     }
 }
