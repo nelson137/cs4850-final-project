@@ -13,6 +13,9 @@ use libchat::{
     err::MyResult, PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN,
 };
 
+static E_NOT_LOGGED_OUT: &str = "Denied. Must be logged out.";
+static E_NOT_LOGGED_IN: &str = "Denied. Please login first.";
+
 macro_rules! _HELP_FORMAT {
     () => {
         "
@@ -67,7 +70,7 @@ impl Repl {
             help_msg: build_help(),
             prompt_in_notlogged: "< ".bold(),
             prompt_in_logged: "< ".green().bold(),
-            prompt_out_err: "> error: ".red().bold(),
+            prompt_out_err: "> ".red().bold(),
             prompt_out_info: "> ".bright_black(),
         }
     }
@@ -172,12 +175,20 @@ impl Repl {
                 "help" => self.print(self.help_msg.clone()),
                 "newuser" => self.cmd_newuser(args),
                 "login" => self.cmd_login(args),
-                "logout" => {
-                    exit = true;
-                    self.cmd_logout(args)
-                }
+                "logout" => match self.cmd_logout(args) {
+                    Ok(logout) => {
+                        if logout {
+                            exit = true;
+                        }
+                        Ok(())
+                    }
+                    Err(err) => Err(err),
+                },
                 "send" => self.cmd_send(args),
-                _ => self.print_err(format!("command not recognized: {}", cmd)),
+                _ => self.print_err(format!(
+                    "Error. Command not recognized: {}",
+                    cmd
+                )),
             };
 
             if let Err(error) = cmd_re {
@@ -199,7 +210,13 @@ impl Repl {
     /// Parse `args` for the newuser command and send them to the server.
     ///
     /// syntax: newuser USER PASS
+    ///
+    /// This command may only be executed when logged out.
     fn cmd_newuser(&self, args: &str) -> MyResult<()> {
+        if self.logged_in {
+            return self.print_err(E_NOT_LOGGED_OUT);
+        }
+
         let re_newuser_args = Regex::new(r"^\s*(\S+)\s+(\S+)\s*$")?;
         let newuser_args = match re_newuser_args.captures(args) {
             None => None,
@@ -213,12 +230,12 @@ impl Repl {
         if let Some((user, pass)) = newuser_args {
             if user.len() < USERNAME_MIN || user.len() > USERNAME_MAX {
                 self.print_err(format!(
-                    "newuser: USER must be {} to {} characters long, inclusive",
+                    "Error. User name must be {}-{} characters",
                     USERNAME_MIN, USERNAME_MAX
                 ))?;
             } else if pass.len() < PASSWORD_MIN || pass.len() > PASSWORD_MAX {
                 self.print_err(format!(
-                    "newuser: PASS must be {} to {} characters long, inclusive",
+                    "Error. Password must be {}-{} characters",
                     PASSWORD_MIN, PASSWORD_MAX
                 ))?;
             } else {
@@ -226,7 +243,7 @@ impl Repl {
                 self.server_reply()?;
             }
         } else {
-            self.print_err("syntax: newuser USER PASS")?;
+            self.print_err("Error. Syntax: newuser USER PASS")?;
         }
 
         Ok(())
@@ -235,7 +252,13 @@ impl Repl {
     /// Parse `args` for the login command and send them to the server.
     ///
     /// syntax: login USER PASS
+    ///
+    /// This command may only be executed when logged out.
     fn cmd_login(&mut self, args: &str) -> MyResult<()> {
+        if self.logged_in {
+            return self.print_err(E_NOT_LOGGED_OUT);
+        }
+
         let re_login_args = Regex::new(r"^\s*(\S+)\s+(\S+)\s*$")?;
         let login_args = match re_login_args.captures(args) {
             None => None,
@@ -252,7 +275,7 @@ impl Repl {
                 self.logged_in = true;
             }
         } else {
-            self.print_err("syntax: newuser USER PASS")?;
+            self.print_err("Error. Syntax: login USER PASS")?;
         }
 
         Ok(())
@@ -261,27 +284,41 @@ impl Repl {
     /// Parse `args` for the logout command and send them to the server.
     ///
     /// syntax: logout
-    fn cmd_logout(&mut self, args: &str) -> MyResult<()> {
+    ///
+    /// This command may only be executed when logged in.
+    fn cmd_logout(&mut self, args: &str) -> MyResult<bool> {
+        if !self.logged_in {
+            self.print_err(E_NOT_LOGGED_IN)?;
+            return Ok(false);
+        }
+
         if !Regex::new(r"^\s*$")?.is_match(args) {
-            self.print_err("syntax: logout")?;
-            return Ok(());
+            self.print_err("Error. Syntax: logout")?;
+            return Ok(false);
         }
         trace!("command LOGOUT");
 
         self.client.send_cmd(&["logout"])?;
         if self.server_reply()? {
             self.logged_in = false;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(())
     }
 
     /// Parse `args` for the send command and send them to the server.
     ///
     /// syntax: send MSG...
+    ///
+    /// This command may only be executed when logged in.
     fn cmd_send(&self, args: &str) -> MyResult<()> {
+        if !self.logged_in {
+            return self.print_err(E_NOT_LOGGED_IN);
+        }
+
         if Regex::new(r"^\s*$")?.is_match(args) {
-            self.print_err("syntax: send MSG...")?;
+            self.print_err("Error. Syntax: send MSG...")?;
             return Ok(());
         }
         trace!(args = ?args, "command SEND");

@@ -159,9 +159,10 @@ impl TcpServer {
             ["send", msg] => self.cmd_send(client, msg),
             ["send", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
 
-            _ => {
-                client.reply_err(format!("command not recognized: {}", cmd[0]))
-            }
+            _ => client.reply_err(format!(
+                "Error. Command not recognized: {}",
+                cmd[0]
+            )),
         };
 
         if let Err(error) = cmd_ret {
@@ -184,15 +185,11 @@ impl TcpServer {
         user: &str,
         pass: &str,
     ) -> MyResult<()> {
-        if client.is_logged_in() {
-            client.reply_err("you may not create a new user while logged in")
+        if self.users.insert(user.to_string(), pass.to_string()) {
+            println!("New user account created.");
+            client.reply_ok("New user account created. Please login.")
         } else {
-            if self.users.insert(user.to_string(), pass.to_string()) {
-                info!(name = user, "created user account");
-                client.reply_ok(format!("user account created: {}", user))
-            } else {
-                client.reply_err(format!("user already exists: {}", user))
-            }
+            client.reply_err("Denied. User account already exists.")
         }
     }
 
@@ -205,17 +202,13 @@ impl TcpServer {
         user: &str,
         pass: &str,
     ) -> MyResult<()> {
-        if client.is_logged_in() {
-            client.reply_err("you are already logged in")
-        } else {
-            match &self.users.entry(user) {
-                Entry::Occupied(oe) if oe.get() == pass => {
-                    client.login(user);
-                    info!(name = ?user, "user login");
-                    client.reply_ok(format!("{} joined the room.", user))
-                }
-                _ => client.reply_err("incorrect username or password"),
+        match &self.users.entry(user) {
+            Entry::Occupied(oe) if oe.get() == pass => {
+                client.login(user);
+                println!("{} login.", user);
+                client.reply_ok("Login confirmed.")
             }
+            _ => client.reply_err("Denied. User name or password incorrect."),
         }
     }
 
@@ -223,12 +216,11 @@ impl TcpServer {
     ///
     /// This command can only be called when logged in.
     fn cmd_logout(&self, client: &mut Client) -> MyResult<()> {
-        match client.logout() {
-            Some(user) => {
-                info!(name = ?user, "user logout");
-                client.reply_ok(format!("{} left the room.", user))
-            }
-            None => client.reply_ok("you must be logged in to logout"),
+        if let Some(user) = client.logout() {
+            println!("{} logout.", user);
+            client.reply_ok(format!("{} left.", user))
+        } else {
+            Ok(())
         }
     }
 
@@ -237,10 +229,10 @@ impl TcpServer {
     /// This command can only be called when logged in.
     fn cmd_send(&self, client: &Client, msg: &str) -> MyResult<()> {
         if let Some(user) = &client.username {
-            info!(name = ?user, msg, "user send");
+            println!("{}: {}", user, msg);
             client.reply_ok(format!("{}: {}", user, msg))
         } else {
-            client.reply_err("you must be logged in to send")
+            Ok(())
         }
     }
 }
@@ -261,12 +253,6 @@ impl Client {
             sock,
             username: None,
         }
-    }
-
-    /// Return whether this client is logged in.
-    #[inline]
-    fn is_logged_in(&self) -> bool {
-        self.username.is_some()
     }
 
     /// Update this client's state to be logged in.
