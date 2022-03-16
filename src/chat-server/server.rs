@@ -50,7 +50,6 @@ impl TcpServer {
         let delay = Duration::from_millis(25);
 
         let mut maybe_client = None;
-        let mut client_logout = false;
 
         loop {
             if should_stop.load(Ordering::Relaxed) {
@@ -59,17 +58,26 @@ impl TcpServer {
 
             match self.sock.poll(POLLIN) {
                 Ok(has_incoming) if has_incoming => {
-                    maybe_client
-                        .get_or_insert(Client::new(self.sock.accept()?));
+                    // If there is an in incoming connection always accept and
+                    // try to insert into maybe_client. If it already has a
+                    // value then the new connection will be dropped.
+                    match self.sock.accept() {
+                        Ok(s) => {
+                            maybe_client.get_or_insert(Client::new(s));
+                        }
+                        Err(error) => {
+                            info!(%error, "failed to accept potential new client")
+                        }
+                    }
                 }
-                err @ Err(_) => {
+                Err(error) => {
                     if errno_was_intr() {
                         break;
                     } else {
-                        // `Result::and()` must be used to convert
-                        // `Result<bool, _>` to a `Result<(), _>`, the return
-                        // type, even though we know the value is an `Err`.
-                        return err.and(Ok(()));
+                        info!(
+                            %error,
+                            "failed to poll for potential new client"
+                        );
                     }
                 }
                 _ => (),
@@ -82,9 +90,7 @@ impl TcpServer {
                 continue;
             };
 
-            self.handle_connection(client, &mut client_logout)?;
-
-            if client_logout {
+            if !self.handle_connection(client) {
                 // Drop and close client socket.
                 maybe_client.take();
             }
@@ -93,21 +99,39 @@ impl TcpServer {
         Ok(())
     }
 
-    /// Parse and process a command from the client and return the response or
-    /// an error, and whether the client has quit.
-    ///
-    /// Note: this method will block if no message is waiting to be read.
-    fn handle_connection(
-        &mut self,
-        client: &mut Client,
-        logout: &mut bool,
-    ) -> MyResult<()> {
-        let cmd = client.sock.recv(COMMAND_MAX)?;
+    /// Parse and process a command from the client and return whether the
+    /// client should be kept (i.e. false means drop the client).
+    fn handle_connection(&mut self, client: &mut Client) -> bool {
+        match client.sock.poll(POLLIN) {
+            Ok(has_data) if !has_data => return true,
+            Err(error) => {
+                info!(
+                    sock = %client.sock.display(),
+                    %error,
+                    "failed to poll for client message"
+                );
+                return false;
+            }
+            _ => (),
+        }
+
+        let cmd = match client.sock.recv(COMMAND_MAX) {
+            Ok(c) => c,
+            Err(error) => {
+                info!(
+                    sock = %client.sock.display(),
+                    %error,
+                    "failed to recv from client"
+                );
+                return false;
+            }
+        };
         debug!(sock = %client.sock.display(), ?cmd, "received command");
 
         let cmd: Vec<_> = cmd.split(COMMAND_SEP).collect();
         if cmd.is_empty() {
-            return Err("command contains no separators".to_string().into());
+            info!(sock = %client.sock.display(), "received empty command");
+            return false;
         }
 
         macro_rules! reply_invalid_num_args {
@@ -119,7 +143,9 @@ impl TcpServer {
             };
         }
 
-        match cmd.as_slice() {
+        let mut keep_connection = true;
+
+        let cmd_ret = match cmd.as_slice() {
             ["newuser", user, pass] => self.cmd_newuser(client, user, pass),
             ["newuser", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
 
@@ -127,7 +153,7 @@ impl TcpServer {
             ["login", rest @ ..] => reply_invalid_num_args!(2, rest.len()),
 
             ["logout"] => {
-                *logout = true;
+                keep_connection = false;
                 self.cmd_logout(client)
             }
             ["logout", rest @ ..] => reply_invalid_num_args!(0, rest.len()),
@@ -138,7 +164,13 @@ impl TcpServer {
             _ => {
                 client.reply_err(format!("command not recognized: {}", cmd[0]))
             }
+        };
+
+        if let Err(error) = cmd_ret {
+            info!(%error, "error while executing command");
         }
+
+        keep_connection
     }
 
     //==================================================

@@ -5,7 +5,7 @@ use std::{
 
 use colored::{ColoredString, Colorize};
 use regex::Regex;
-use tracing::trace;
+use tracing::{info, trace};
 
 use super::client::TcpClient;
 
@@ -167,23 +167,33 @@ impl Repl {
                 None => continue,
             };
 
-            match cmd {
-                "help" => self.print(self.help_msg.clone())?,
-                "quit" => {
-                    if self.cmd_quit(args)? {
-                        break;
+            let mut quit = false;
+
+            let cmd_re = match cmd {
+                "help" => self.print(self.help_msg.clone()),
+                "quit" => match self.cmd_quit(args) {
+                    Ok(q) => {
+                        quit = q;
+                        Ok(())
                     }
-                }
-                "newuser" => self.cmd_newuser(args)?,
-                "login" => self.cmd_login(args)?,
+                    Err(err) => Err(err),
+                },
+                "newuser" => self.cmd_newuser(args),
+                "login" => self.cmd_login(args),
                 "logout" => {
-                    self.cmd_logout(args)?;
-                    break;
+                    quit = true;
+                    self.cmd_logout(args)
                 }
-                "send" => self.cmd_send(args)?,
-                _ => {
-                    self.print_err(format!("command not recognized: {}", cmd))?;
-                }
+                "send" => self.cmd_send(args),
+                _ => self.print_err(format!("command not recognized: {}", cmd)),
+            };
+
+            if let Err(error) = cmd_re {
+                info!(%error, "error while executing command");
+            }
+
+            if quit {
+                break;
             }
         }
 
