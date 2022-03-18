@@ -24,6 +24,14 @@ o888bood8P'   `Y8bod8P'  `Y888""8o   "888"
      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ```
 
+## About
+
+Author: Nelson Earle (nwewnh)
+
+Date: 2022-03-18
+
+Description: This program is a simple chat room with a server and client. The server can only handle one client at a time. A client can create new users, login, send a message, and log out of the room. The server will echo sent messages back to the client.
+
 ## How to Run
 
 This project is written in [Rust](https://www.rust-lang.org/). The minimum supported version is 1.49 [due to one of the dependencies](https://docs.rs/tracing/latest/tracing/#supported-rust-versions), however, it is recommended to run with the lastest version, 1.59. This is only an issue if Rust is already installed on your machine and has not been updated in over a year (version 1.49 was released on December 31, 2020). If so, please run `rustc --version` to verify.
