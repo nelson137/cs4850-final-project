@@ -6,12 +6,12 @@ use std::{
 
 use libc::{
     accept, bind, c_int, c_short, c_void, close, connect, in_addr, listen,
-    poll, pollfd, read, setsockopt, sockaddr, sockaddr_in, socket, write,
-    AF_INET, INADDR_LOOPBACK, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR,
+    read, setsockopt, sockaddr, sockaddr_in, socket, write, AF_INET,
+    INADDR_LOOPBACK, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR,
 };
 use tracing::debug;
 
-use super::hton;
+use super::{hton, poll};
 
 use crate::{err::MyResult, LISTEN_BACKLOG, MSG_MAX};
 
@@ -113,20 +113,7 @@ pub trait SocketCommon: From<c_int> {
 
     /// Wrapper method that calls `poll()` on this socket.
     fn poll(&self, events: c_short) -> MyResult<bool> {
-        let mut poll_fds = [pollfd {
-            fd: self.fd(),
-            events,
-            revents: 0,
-        }];
-
-        let n_ready = unsafe { poll(poll_fds.as_mut_ptr(), 1, 0) };
-
-        if n_ready < 0 {
-            let err = io::Error::last_os_error();
-            Err(format!("failed to poll: {}", err).into())
-        } else {
-            Ok(n_ready > 0)
-        }
+        poll(self.fd(), events)
     }
 
     /// Wrapper for socket API `send()`.

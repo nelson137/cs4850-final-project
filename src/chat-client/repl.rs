@@ -1,16 +1,25 @@
 use std::{
     cell::RefCell,
     io::{self, Stdin, Stdout, Write},
+    os::unix::prelude::AsRawFd,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::Duration,
 };
 
 use colored::{ColoredString, Colorize};
+use libc::POLLIN;
 use regex::Regex;
 use tracing::{info, trace};
 
 use super::client::TcpClient;
 
 use libchat::{
-    err::MyResult, PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN,
+    err::MyResult, setup_int_handler, sys::poll, PASSWORD_MAX, PASSWORD_MIN,
+    USERNAME_MAX, USERNAME_MIN,
 };
 
 static E_NOT_LOGGED_OUT: &str = "Denied. Must be logged out.";
@@ -149,14 +158,38 @@ impl Repl {
 
     /// Run the REPL.
     pub fn main_loop(&mut self) -> MyResult<()> {
+        let stdin = io::stdin();
+
+        let should_stop = Arc::new(AtomicBool::new(false));
+        setup_int_handler(&should_stop)?;
+
         let mut raw_line = String::new();
         let re_cmd = Regex::new(r"^\s*(\S+) ?(.*)$")?;
 
+        let delay = Duration::from_millis(25);
+
+        let mut did_prompt = false;
+
         loop {
+            thread::sleep(delay);
+
+            if should_stop.load(Ordering::Relaxed) {
+                break;
+            }
+
+            if !did_prompt {
+                self.print(self.get_user_prompt().to_string())?;
+                did_prompt = true;
+            }
+
+            if !poll(stdin.as_raw_fd(), POLLIN)? {
+                continue;
+            }
+
             raw_line.clear();
-            self.print(self.get_user_prompt().to_string())?;
             self.stdin.read_line(&mut raw_line)?;
             let line = raw_line.trim_end_matches('\n');
+            did_prompt = false;
             trace!(line, "input");
 
             let (cmd, args) = match re_cmd.captures(line) {
