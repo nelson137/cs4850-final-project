@@ -32,6 +32,9 @@ pub enum MyError {
 
     #[error("dotenv: {0}")]
     Dotenv(#[from] dotenv::Error),
+
+    #[error("server rejected the connection")]
+    ClientRejected,
 }
 
 impl From<String> for MyError {

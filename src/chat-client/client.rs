@@ -1,9 +1,9 @@
-use tracing::trace;
+use tracing::{debug, trace};
 
 use libchat::{
-    err::MyResult,
+    err::{MyError, MyResult},
     sys::{ClientSocket, SockAddr, SocketCommon},
-    ServerReply, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
+    ServerReply, COMMAND_MAX, COMMAND_SEP, HANDSHAKE_ACK, REPLY_FLAG_ERR,
 };
 
 /// Wrapper type that manages client-side networking.
@@ -25,7 +25,13 @@ impl TcpClient {
         let sock = ClientSocket::new()?;
         let mut addr = SockAddr::new(port);
         sock.connect(&mut addr)?;
-        Ok(Self { sock })
+        let reply = sock.recv(COMMAND_MAX)?;
+        debug!(msg = ?reply, "handshake reply");
+        if reply == HANDSHAKE_ACK {
+            Ok(Self { sock })
+        } else {
+            Err(MyError::ClientRejected)
+        }
     }
 
     /// Send the given command to the server.

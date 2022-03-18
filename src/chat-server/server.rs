@@ -13,7 +13,7 @@ use libchat::{
     err::MyResult,
     setup_int_handler,
     sys::{errno_was_intr, ServerSocket, SockAddr, SocketCommon},
-    UsersDao, COMMAND_MAX, COMMAND_SEP, REPLY_FLAG_ERR,
+    UsersDao, COMMAND_MAX, COMMAND_SEP, HANDSHAKE_ACK, REPLY_FLAG_ERR,
 };
 use tracing::{debug, info};
 
@@ -51,26 +51,41 @@ impl TcpServer {
         let mut maybe_client = None;
 
         loop {
+            thread::sleep(delay);
+
             if should_stop.load(Ordering::Relaxed) {
                 break;
             }
 
+            // Poll for incoming connection
             match self.sock.poll(POLLIN) {
                 Ok(has_incoming) if has_incoming => {
-                    // If there is an in incoming connection always accept and
-                    // try to insert into maybe_client. If it already has a
-                    // value then the new connection will be dropped.
+                    // Accept all incoming connections, but drop them if there
+                    // is already a client
                     match self.sock.accept() {
-                        Ok(s) => {
-                            maybe_client.get_or_insert(Client::new(s));
-                        }
                         Err(error) => {
                             info!(%error, "failed to accept potential new client")
                         }
+                        Ok(s) if maybe_client.is_none() => {
+                            // Send handshake ack
+                            if let Err(error) = s.send(HANDSHAKE_ACK) {
+                                info!(
+                                    sock = s.fd(),
+                                    %error,
+                                    "failed to send connection accepted message to client"
+                                );
+                            } else {
+                                // No error, store client
+                                maybe_client = Some(Client::new(s));
+                            }
+                        }
+                        // New connection is dropped if !maybe_client.is_none()
+                        _ => (),
                     }
                 }
                 Err(error) => {
                     if errno_was_intr() {
+                        // Stop server for interrupt signals
                         break;
                     } else {
                         info!(
@@ -82,16 +97,11 @@ impl TcpServer {
                 _ => (),
             }
 
-            let client = if let Some(c) = &mut maybe_client {
-                c
-            } else {
-                thread::sleep(delay);
-                continue;
-            };
-
-            if !self.handle_connection(client) {
-                // Drop and close client socket.
-                maybe_client.take();
+            if let Some(client) = &mut maybe_client {
+                if !self.handle_connection(client) {
+                    // Drop and close client socket.
+                    maybe_client.take();
+                }
             }
         }
 
